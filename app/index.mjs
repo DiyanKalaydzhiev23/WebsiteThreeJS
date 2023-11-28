@@ -33,7 +33,7 @@ manager.on('move', function (evt, data) {
     moveX = Math.cos(data.angle.radian) * dataForce * 0.02;
     moveZ = Math.sin(data.angle.radian) * dataForce * 0.02;
 
-    moveAngle = data.angle.radian + Math.PI/2;
+    moveAngle = data.angle.radian + Math.PI / 2;
 });
 
 manager.on('end', function () {
@@ -54,7 +54,12 @@ window.addEventListener('resize', function () {
 });
 
 const planeGeometry = new THREE.PlaneGeometry(100, 100);
-const planeMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide });
+const planeMaterial = new THREE.MeshBasicMaterial({
+    color: 0x00ff00, // Green color
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0 // Adjust the opacity as needed, 0.5 is 50% transparent
+});
 const plane = new THREE.Mesh(planeGeometry, planeMaterial);
 plane.rotation.x = Math.PI / 2;
 scene.add(plane);
@@ -90,24 +95,79 @@ loader.load('./humanModel.glb', function (gltf) {
     rightLeg = human.getObjectByName('RightLeg');
 });
 
+let cityModel;
+let cityObjects = []; // Array to hold mesh objects for collision detection
+
+loader.load('./low_poly_city.glb', function (gltf) {
+    cityModel = gltf.scene;
+    scene.add(cityModel);
+
+    // Traverse the city model and collect mesh objects, excluding the floor
+    cityModel.traverse(function (object) {
+        console.log(object.name, object.geometry?.boundingBox.max.x);
+        if (object.isMesh && object.name !== 'Pavimento_Colore_0') {
+            // Add objects to cityObjects if they're not the floor
+            cityObjects.push(object);
+        }
+    });
+
+    // Now create bounding boxes
+    cityBoundingBoxes = cityObjects.map(object => new THREE.Box3().setFromObject(object));
+
+    // Other setup code...
+}, undefined, function (error) {
+    console.error('An error happened while loading the model:', error);
+});
+
+
+
 let walkPhase = 0;
 
+// Assuming cityObjects is an array of meshes in your city model
+let cityBoundingBoxes = cityObjects.map(object => new THREE.Box3().setFromObject(object));
+
+function checkCollision(newPosition) {
+    let humanBoundingBox = new THREE.Box3().setFromObject(human);
+    humanBoundingBox.min.y += newPosition.y + 16; // Adjust the Y position of the bounding box
+    humanBoundingBox.max.y += newPosition.y;
+
+    for (let box of cityBoundingBoxes) {
+        if (humanBoundingBox.intersectsBox(box)) {
+            console.log(box);
+            return true; // Collision detected
+        }
+    }
+    return false; // No collision
+}
+
 function animate() {
-    plane.position.x -= moveX;
-    plane.position.z += moveZ;
+    // Calculate the new position but don't update it yet
 
     if (human) {
+        let newPosition = {
+            x: human.position.x - moveX,
+            y: human.position.y, // Assuming Y is your height axis
+            z: human.position.z + moveZ
+        };
+
+        if (!checkCollision(newPosition)) {
+            if (cityModel) {
+                cityModel.position.x -= moveX;
+                cityModel.position.z += moveZ;
+            }
+        }
+        
         human.rotation.y = moveAngle;
 
         if (moveX || moveZ) {
             walkPhase += 0.2 * dataForce / 4;
 
             const armSwing = -Math.sin(walkPhase) * 0.2;
-            const legSwing = Math.sin(walkPhase) * 0.2; // Adjusted as per your last snippet
+            const legSwing = Math.sin(walkPhase) * 0.2;
 
             // Adjust the arms to swing forward and backward
-            leftArm.rotation.z = armSwing; // Changed to y-axis
-            rightArm.rotation.z = armSwing; // Changed to y-axis
+            leftArm.rotation.z = armSwing;
+            rightArm.rotation.z = armSwing;
 
             leftUpLeg.rotation.x = -legSwing + 0.1;
             rightUpLeg.rotation.x = legSwing + 0.1;
@@ -117,13 +177,12 @@ function animate() {
 
         } else {
             // Reset rotations when not moving
-            leftArm.rotation.y = 0; // Changed to y-axis
-            rightArm.rotation.y = 0; // Changed to y-axis
+            leftArm.rotation.y = 0;
+            rightArm.rotation.y = 0;
 
             leftUpLeg.rotation.x = 0;
             rightUpLeg.rotation.x = 0;
 
-            // Increase the backward swing for legs when at rest
             leftLeg.rotation.x = -0.2;
             rightLeg.rotation.x = -0.2;
         }
